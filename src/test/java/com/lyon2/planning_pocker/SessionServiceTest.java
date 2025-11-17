@@ -40,4 +40,31 @@ public class SessionServiceTest {
         assertEquals(debut, s.getDebut());
         assertEquals(fin, s.getFin());
     }
+
+    /**
+     * Teste la création d'une session avec des valeurs non null.
+     * Vérifie que la session est bien créée et que les toutes les valeurs non nulles.
+     */
+
+    @Test
+    void testCreateSession_WithNullValues() {
+        SessionService service = new SessionService();
+
+        Date debut = new Date(1000000);
+        Date fin = new Date(2000000);
+
+        Session s = service.createSession(
+                1,
+                null,
+                null,
+                debut,
+                fin,
+                null
+        );
+
+        assertNotNull(s);
+        assertNull(s.getTitre());
+        assertNull(s.getDescription());
+    }
+
 }
