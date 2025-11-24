@@ -26,6 +26,7 @@ package com.lyon2.planning_pocker.model;
  */
 public enum ValeurCarte {
     ZERO,
+    ONEHALF,
     ONE,
     TWO,
     THREE,
