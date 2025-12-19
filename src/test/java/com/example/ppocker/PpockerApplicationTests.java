@@ -1,10 +1,10 @@
-package com.lyon2.planning_pocker;
+package com.example.ppocker;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class PlanningPockerApplicationTests {
+class PpockerApplicationTests {
 
 	@Test
 	void contextLoads() {

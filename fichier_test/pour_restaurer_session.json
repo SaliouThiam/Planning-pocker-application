@@ -1,0 +1,22 @@
+{
+  "backlog": [
+    "Ajouter authentification",
+    "Mettre en place API",
+    "Création base de données"
+  ],
+  "currentIndex": 2,
+  "id": "9Q27R",
+  "mode": "STRICT",
+  "name": "test",
+  "players": [
+    {
+      "pseudo": "Saliou"
+    }
+  ],
+  "revealed": true,
+  "votes": {
+    "Saliou": 1,
+    "SM": 1,
+    "RESULT": 1
+  }
+}

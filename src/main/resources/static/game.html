@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Planning Poker</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+
+    <style>
+        body {
+            font-family: "Segoe UI", Tahoma, sans-serif;
+            background: #f5f6fa;
+            margin: 0;
+            padding: 0;
+            color: #2f3640;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            margin-top: 25px;
+            color: #273c75;
+            font-size: 32px;
+        }
+
+        #sessionInfo {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background: #dcdde1;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .card {
+            background: white;
+            width: 420px;
+            padding: 20px;
+            border-radius: 14px;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.1);
+            margin-top: 25px;
+        }
+
+        h2 {
+            color: #353b48;
+            margin-bottom: 10px;
+        }
+
+        #currentFeature {
+            background: #e1f5fe;
+            border-left: 5px solid #00a8ff;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        #modeBadge {
+            margin-top: 10px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        .mode-strict {
+            background: #ffdddd;
+            color: #c0392b;
+        }
+
+        .mode-average {
+            background: #ddf4ff;
+            color: #0984e3;
+        }
+
+        #voteButtons button {
+            background: #0097e6;
+            color: white;
+            padding: 12px 18px;
+            margin: 5px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        #votesList {
+            background: #f1f2f6;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        #resultBox {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            display: none;
+        }
+
+        .result-success {
+            background: #dff9fb;
+            border: 2px solid #22a6b3;
+            color: #130f40;
+        }
+
+        .result-fail {
+            background: #ffecec;
+            border: 2px solid #e74c3c;
+            color: #c0392b;
+        }
+
+        button.action {
+            width: 180px;
+            padding: 12px;
+            margin: 10px;
+            font-size: 16px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            background: #44bd32;
+            color: white;
+        }
+
+        #smControls {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Planning Poker</h1>
+
+<div id="sessionInfo"></div>
+
+<div class="card">
+    <h2>Fonctionnalité courante</h2>
+    <div id="currentFeature">En attente...</div>
+    <div id="modeBadge"></div>
+</div>
+
+<div class="card">
+    <h2>Vote</h2>
+    <div id="voteButtons">
+        <button onclick="vote(1)">1</button>
+        <button onclick="vote(2)">2</button>
+        <button onclick="vote(3)">3</button>
+        <button onclick="vote(5)">5</button>
+        <button onclick="vote(8)">8</button>
+        <button onclick="vote(13)">13</button>
+        <button onclick="vote('?')">?</button>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Votes reçus</h2>
+    <div id="votesList">Aucun vote pour le moment…</div>
+    <div id="resultBox"></div>
+</div>
+
+<div id="smControls">
+    <button class="action" id="revealBtn">Reveal (SM)</button>
+    <button class="action" id="nextBtn">Next (SM)</button>
+    <button class="action" id="saveBtn">☕ Café</button>
+</div>
+
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session');
+    const pseudo = urlParams.get('pseudo') || 'SM';
+
+    document.getElementById("sessionInfo").innerText =
+        `Session: ${sessionId} — Pseudo: ${pseudo}`;
+
+    let stompClient;
+    let sessionMode = "STRICT"; // mode de la session
+
+    async function loadSessionState() {
+        const response = await fetch(`/api/sessions/${sessionId}`);
+        const session = await response.json();
+
+        sessionMode = session.mode; // récupérer le mode
+
+        const feature =
+            session.backlog.length > session.currentIndex
+                ? session.backlog[session.currentIndex]
+                : "Fin du backlog";
+
+        document.getElementById("currentFeature").innerText = feature;
+
+        // MODE
+        const modeBadge = document.getElementById("modeBadge");
+        if (session.mode === "AVERAGE") {
+            modeBadge.innerText = "MODE : AVERAGE";
+            modeBadge.className = "mode-average";
+        } else {
+            modeBadge.innerText = "MODE : STRICT";
+            modeBadge.className = "mode-strict";
+        }
+
+        if (session.revealed) {
+            updateVotes(session.votes || {});
+        } else {
+            document.getElementById("votesList").innerText =
+                `Votes reçus : ${Object.keys(session.votes || {}).length}`;
+        }
+    }
+
+    function connectWebSocket() {
+        const socket = new SockJS('/ws');
+        stompClient = Stomp.over(socket);
+
+        stompClient.connect({}, () => {
+
+            stompClient.subscribe(`/topic/session/${sessionId}/feature`, msg => {
+                const data = JSON.parse(msg.body);
+                document.getElementById("currentFeature").innerText =
+                    data.feature || "Fin du backlog";
+                updateVotes(data.votes || {});
+            });
+
+            stompClient.subscribe(`/topic/session/${sessionId}/votes-count`, msg => {
+                document.getElementById("votesList").innerText =
+                    `Votes reçus : ${msg.body}`;
+            });
+
+            stompClient.subscribe(`/topic/session/${sessionId}/reveal`, msg => {
+                updateVotes(JSON.parse(msg.body));
+            });
+        });
+    }
+
+    function vote(value) {
+        stompClient.send(
+            `/app/session/${sessionId}/vote`,
+            {},
+            JSON.stringify({ player: pseudo, value })
+        );
+    }
+
+    function updateVotes(votes) {
+        let html = "<ul>";
+        let result = null;
+        const voteValues = [];
+
+        for (const [player, val] of Object.entries(votes)) {
+            if (player === "RESULT") {
+                result = val;
+                continue;
+            }
+            html += `<li>${player} → ${val || "?"}</li>`;
+            if (val && val !== "?") voteValues.push(val);
+        }
+        html += "</ul>";
+
+        document.getElementById("votesList").innerHTML = html;
+
+        const box = document.getElementById("resultBox");
+        const nextBtn = document.getElementById("nextBtn");
+
+        // Vérification mode STRICT pour blocage Next
+        if (sessionMode === "STRICT" && voteValues.length > 0) {
+            const allEqual = voteValues.every(v => v === voteValues[0]);
+            if (!allEqual) {
+                nextBtn.disabled = true;
+                box.style.display = "block";
+                box.className = "result-fail";
+                box.innerText = "❌ Les estimations ne sont pas égales — discussion requise";
+            } else {
+                nextBtn.disabled = false;
+            }
+        } else {
+            nextBtn.disabled = false; // mode AVERAGE ou pas de vote
+        }
+
+        if ("RESULT" in votes) {
+            box.style.display = "block";
+            if (result !== null) {
+                box.className = "result-success";
+                box.innerText = `✅ Estimation finale : ${result}`;
+            } else if (sessionMode !== "STRICT") {
+                box.className = "result-fail";
+                box.innerText = "❌ Désaccord — discussion requise";
+            }
+        } else if (sessionMode !== "STRICT" || voteValues.length === 0) {
+            box.style.display = "none";
+        }
+    }
+
+    document.getElementById("revealBtn").onclick =
+        () => stompClient.send(`/app/session/${sessionId}/reveal`, {}, {});
+
+    document.getElementById("nextBtn").onclick =
+        () => stompClient.send(`/app/session/${sessionId}/next`, {}, {});
+
+    document.getElementById("saveBtn").onclick = async () => {
+        const res = await fetch(`/api/sessions/${sessionId}`);
+        const session = await res.json();
+
+        const blob = new Blob(
+            [JSON.stringify(session, null, 2)],
+            { type: "application/json" }
+        );
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `session-${sessionId}.json`;
+        a.click();
+    };
+
+    loadSessionState().then(connectWebSocket);
+</script>
+
+</body>
+</html>

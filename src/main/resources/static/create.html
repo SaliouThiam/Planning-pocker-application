@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Créer une session Planning Poker</title>
+
+    <style>
+        body {
+            font-family: "Segoe UI", Tahoma, sans-serif;
+            background: #f5f6fa;
+            margin: 0;
+            padding: 40px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-size: 30px;
+            font-weight: 700;
+            color: #2c3e50;
+            text-align: center;
+        }
+
+        .card {
+            background: white;
+            width: 460px;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        label {
+            font-size: 15px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            margin-top: 6px;
+            margin-bottom: 20px;
+            border: 1px solid #dcdde1;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+
+        #fileInput {
+            padding: 10px;
+            border: 1px dashed #7f8fa6;
+            background: #f1f2f6;
+            cursor: pointer;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #2ecc71;
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 18px;
+            cursor: pointer;
+            transition: .20s;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #27ae60;
+        }
+
+        #result {
+            margin-top: 25px;
+            width: 460px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity .3s ease, transform .3s ease;
+        }
+
+        #result.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #preview {
+            font-size: 14px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 15px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Créer une session</h1>
+
+<div class="card">
+    <form id="createForm">
+
+        <label>Nom de la session :</label>
+        <input type="text" id="sessionName" required>
+
+        <label>Upload du backlog (JSON ou CSV) :</label>
+        <input type="file" id="fileInput" accept=".json,.csv">
+
+        <label>Mode de vote :</label>
+        <select id="modeSelect">
+            <option value="STRICT" selected>STRICT</option>
+            <option value="AVERAGE">AVERAGE</option>
+        </select>
+
+        <div id="preview"></div>
+
+        <button type="submit">Créer la session</button>
+
+        <hr style="margin:20px 0;">
+
+        <label>Restaurer une session :</label>
+        <input type="file" id="restoreFile" accept="application/json">
+        <button type="button" onclick="restoreSession()">Restaurer</button>
+
+    </form>
+</div>
+
+<div id="result"></div>
+
+<script>
+    const fileInput = document.getElementById("fileInput");
+    const preview = document.getElementById("preview");
+
+    let backlog = [];
+
+    fileInput.addEventListener("change", () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+
+        reader.onload = (event) => {
+            const content = event.target.result;
+
+            try {
+                if (file.name.endsWith(".json")) {
+                    const data = JSON.parse(content);
+                    backlog = Array.isArray(data.backlog) ? data.backlog : [];
+                } else if (file.name.endsWith(".csv")) {
+                    backlog = content
+                        .split("\n")
+                        .map(l => l.trim())
+                        .filter(l => l !== "");
+                }
+
+                if (backlog.length === 0) {
+                    alert("Le fichier ne contient aucune fonctionnalité.");
+                    return;
+                }
+
+                preview.style.display = "block";
+                preview.innerHTML = `
+                    <strong>Backlog chargé (${backlog.length}) :</strong>
+                    <ul>${backlog.map(f => `<li>${f}</li>`).join("")}</ul>
+                `;
+            } catch {
+                alert("Erreur lors de la lecture du fichier.");
+                backlog = [];
+            }
+        };
+
+        reader.readAsText(file);
+    });
+
+    document.getElementById("createForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const name = document.getElementById("sessionName").value.trim();
+        const mode = document.getElementById("modeSelect").value;
+
+        if (!name) {
+            alert("Veuillez entrer un nom de session.");
+            return;
+        }
+
+        if (backlog.length === 0) {
+            alert("Veuillez uploader un backlog valide.");
+            return;
+        }
+
+        const response = await fetch("/api/sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, backlog, mode })
+        });
+
+        const result = document.getElementById("result");
+
+        if (response.ok) {
+            const data = await response.json();
+            result.innerHTML = `
+                <h3>Session créée avec succès 🎉</h3>
+                <p><strong>Code de session :</strong> ${data.id}</p>
+                <p>👉 <a href="game.html?session=${data.id}">Aller à la session</a></p>
+            `;
+            result.classList.add("show");
+        } else {
+            result.innerHTML = "<p style='color:red;'>Erreur lors de la création de la session.</p>";
+            result.classList.add("show");
+        }
+    });
+
+    async function restoreSession() {
+        const fileInput = document.getElementById("restoreFile");
+
+        if (fileInput.files.length === 0) {
+            alert("Veuillez sélectionner un fichier JSON.");
+            return;
+        }
+
+        const file = fileInput.files[0];
+        const json = JSON.parse(await file.text());
+
+        const response = await fetch("/api/sessions/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(json)
+        });
+
+        if (!response.ok) {
+            alert("Erreur lors de la restauration.");
+            return;
+        }
+
+        const data = await response.json();
+        window.location.href = "game.html?session=" + data.id;
+    }
+</script>
+
+</body>
+</html>
